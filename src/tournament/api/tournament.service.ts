@@ -122,7 +122,7 @@ export class TournamentService {
         // To compute this cleanly, we will keep track of eliminated participants per round.
 
         // Determine eliminated participants this round:
-        const eliminated = [];
+        const eliminated: TournamentParticipant[] = [];
         for (const m of matchesToSave) {
           const loser =
             m.winner?.id === m.participantA.id
@@ -189,6 +189,9 @@ export class TournamentService {
         const pts = this.pointsForPlace(i + 1);
         // increment user's totalPoints
         const user = await manager.findOne(User, { where: { id: p.user.id } });
+
+        if (!user) throw new Error(`User not found: ${p.user.id}`);
+
         user.totalPoints += pts;
         await manager.save(user);
         await manager.save(p);

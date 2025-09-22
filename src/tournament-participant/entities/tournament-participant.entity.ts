@@ -6,6 +6,7 @@ import {
   ManyToOne,
   Column,
   Unique,
+  CreateDateColumn,
 } from "typeorm";
 
 @Entity()
@@ -27,4 +28,7 @@ export class TournamentParticipant {
   // final place (1 = first, 2 = second, etc.)
   @Column({ type: "int", nullable: true })
   place?: number;
+
+  @CreateDateColumn()
+  createdAt: Date;
 }
