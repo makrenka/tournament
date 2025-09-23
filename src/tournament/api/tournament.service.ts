@@ -10,30 +10,35 @@ import { TournamentStatus } from "utils/enums/tournament.enum";
 @Injectable()
 export class TournamentService {
   constructor(
-    @InjectRepository(Tournament) private tourRepo: Repository<Tournament>,
+    @InjectRepository(Tournament)
+    private tournamentRepository: Repository<Tournament>,
     @InjectRepository(TournamentParticipant)
-    private partRepo: Repository<TournamentParticipant>,
-    @InjectRepository(Match) private matchRepo: Repository<Match>,
-    @InjectRepository(User) private userRepo: Repository<User>,
+    private tournamentParticipantRepository: Repository<TournamentParticipant>,
+    @InjectRepository(Match) private matchRepository: Repository<Match>,
+    @InjectRepository(User) private userRepository: Repository<User>,
     private dataSource: DataSource
   ) {}
 
   async createTournament(name: string) {
-    const t = this.tourRepo.create({ name });
-    return this.tourRepo.save(t);
+    const tournament = this.tournamentRepository.create({ name });
+    return this.tournamentRepository.save(tournament);
   }
 
   async joinTournament(tournamentId: string, userId: string) {
-    const tour = await this.tourRepo.findOneByOrFail({ id: tournamentId });
-    if (tour.status !== TournamentStatus.DRAFT) {
-      throw new Error("Can only join draft tournaments");
+    const tournament = await this.tournamentRepository.findOneByOrFail({
+      id: tournamentId,
+    });
+    if (tournament.status !== TournamentStatus.DRAFT) {
+      throw new Error("Можно присоединиться только к турнирам DRAFT");
     }
-    const user = await this.userRepo.findOneByOrFail({ id: userId });
-    const participant = this.partRepo.create({ tournament: tour, user });
-    return this.partRepo.save(participant);
+    const user = await this.userRepository.findOneByOrFail({ id: userId });
+    const participant = this.tournamentParticipantRepository.create({
+      tournament: tournament,
+      user,
+    });
+    return this.tournamentParticipantRepository.save(participant);
   }
 
-  // helper: shuffle array
   private shuffle<T>(arr: T[]) {
     for (let i = arr.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
@@ -42,7 +47,7 @@ export class TournamentService {
     return arr;
   }
 
-  // points system (example) — first:100, second:60, third:40, others smaller
+  // система баллов — первое место: 100, второе место: 60, третье место: 40, остальные меньше
   private pointsForPlace(place: number) {
     if (place === 1) return 100;
     if (place === 2) return 60;
@@ -51,58 +56,55 @@ export class TournamentService {
     return 5;
   }
 
-  // main runner — synchronous simulation; wrapped in transaction for consistency
   async runTournament(tournamentId: string) {
     return this.dataSource.transaction(async (manager) => {
-      const tour = await manager.findOne(Tournament, {
+      const tournament = await manager.findOne(Tournament, {
         where: { id: tournamentId },
       });
-      if (!tour) throw new Error("Tournament not found");
-      if (tour.status !== TournamentStatus.DRAFT)
-        throw new Error("Tournament must be DRAFT to start");
+      if (!tournament) throw new Error("Турнир не найден");
+      if (tournament.status !== TournamentStatus.DRAFT)
+        throw new Error("Турнир должен быть DRAFT, чтобы начаться");
 
-      tour.status = TournamentStatus.RUNNING;
-      await manager.save(tour);
+      tournament.status = TournamentStatus.RUNNING;
+      await manager.save(tournament);
 
       let participants = await manager.find(TournamentParticipant, {
-        where: { tournament: { id: tour.id } },
+        where: { tournament: { id: tournament.id } },
         relations: ["user"],
       });
 
-      // if not enough participants:
       if (participants.length < 2) {
-        throw new Error("Need at least 2 participants");
+        throw new Error("Необходимо как минимум 2 участника");
       }
 
-      // map of participantId -> place (to fill later)
       const finalPlaces = new Map<string, number>();
       let round = 1;
-      let current = participants.slice(); // array of TournamentParticipant
+      let currentTournament = participants.slice();
 
-      while (current.length > 1) {
-        this.shuffle(current);
+      while (currentTournament.length > 1) {
+        this.shuffle(currentTournament);
         const winners: TournamentParticipant[] = [];
         const matchesToSave: Match[] = [];
 
-        for (let i = 0; i < current.length; i += 2) {
-          const a = current[i];
-          const b = current[i + 1];
+        for (let i = 0; i < currentTournament.length; i += 2) {
+          const a = currentTournament[i];
+          const b = currentTournament[i + 1];
 
+          // если нет пары, первый участник проходит автоматически в следующий раунд
           if (!b) {
-            // bye -> automatic advance
             winners.push(a);
             continue;
           }
 
-          // create match
+          // создание матча
           const match = manager.create(Match, {
-            tournament: tour,
+            tournament: tournament,
             participantA: a,
             participantB: b,
             round,
           });
 
-          // choose random winner
+          // выбор победителя
           const chooseA = Math.random() < 0.5;
           match.winner = chooseA ? a : b;
 
@@ -110,44 +112,42 @@ export class TournamentService {
           winners.push(match.winner);
         }
 
-        // save matches
         await manager.save(matchesToSave);
 
-        // If this round produced losers that are eliminated, we can assign provisional places.
-        // We'll determine places when players get eliminated; simpler approach: when tournament reduces to 1 winner,
-        // assign final places by elimination round. For clarity, we will compute places as follows:
-        // - Winner gets place 1 after tournament ends.
-        // - Final opponent gets place 2.
-        // - Semi-final losers get places 3-4, etc.
-        // To compute this cleanly, we will keep track of eliminated participants per round.
+        // Определяем места по мере выбывания игроков, финальные места распределяются по раунду на выбывание.
+        // Места будем рассчитывать следующим образом:
+        // - Победитель получает 1-е место после окончания турнира.
+        // - Финальный соперник получает 2-е место.
+        // - Проигравшие в полуфинале занимают 3-4-е места и т. д.
 
-        // Determine eliminated participants this round:
-        const eliminated: TournamentParticipant[] = [];
-        for (const m of matchesToSave) {
+        // Выбывшие участники в этом раунде:
+        const dropout: TournamentParticipant[] = [];
+        for (const match of matchesToSave) {
           const loser =
-            m.winner?.id === m.participantA.id
-              ? m.participantB
-              : m.participantA;
-          eliminated.push(loser);
+            match.winner?.id === match.participantA.id
+              ? match.participantB
+              : match.participantA;
+          dropout.push(loser);
         }
 
-        // assign provisional elimination round to eliminated players (we will translate to place at the end)
-        // store round eliminated as metadata in their participant record (non-persistent field). We'll collect elimination info in a list.
-        eliminated.forEach((p) => {
+        // назначить предварительный раунд на выбывание выбывшим игрокам (мы переведем его в финальное место)
+        // сохранить раунд, в котором выбывшие игроки участвуют, в виде метаданных в их записях об участниках (непостоянное поле).
+        // Мы будем собирать информацию об выбывших игроках в виде списка.
+        dropout.forEach((p) => {
           (p as any)._eliminatedAtRound = round;
         });
 
         // participants for next round:
-        current = winners;
+        currentTournament = winners;
         round++;
       }
 
-      // now current.length === 1 -> winner
-      const champion = current[0];
+      // now currentTournament.length === 1 -> winner
+      const champion = currentTournament[0];
 
       // Collect all participants again to compute places:
       const allParticipants = await manager.find(TournamentParticipant, {
-        where: { tournament: { id: tour.id } },
+        where: { tournament: { id: tournament.id } },
         relations: ["user"],
       });
 
@@ -156,7 +156,7 @@ export class TournamentService {
       const eliminatedRoundMap = new Map<string, number>();
       // read matches from DB for this tournament to determine elimination rounds:
       const matches = await manager.find(Match, {
-        where: { tournament: { id: tour.id } },
+        where: { tournament: { id: tournament.id } },
         relations: ["participantA", "participantB", "winner"],
       });
       // For each participant, find the max round they played; the round they lost is the one where they appeared and != winner
@@ -198,11 +198,11 @@ export class TournamentService {
       }
 
       // finalize tournament
-      tour.status = TournamentStatus.FINISHED;
-      await manager.save(tour);
+      tournament.status = TournamentStatus.FINISHED;
+      await manager.save(tournament);
 
       return {
-        tournamentId: tour.id,
+        tournamentId: tournament.id,
         championId: champion.user.id,
         places: sorted.map((s) => ({
           participantId: s.id,
@@ -211,5 +211,13 @@ export class TournamentService {
         })),
       };
     });
+  }
+
+  async getGlobalLeaderboard(limit = 50) {
+    return this.userRepository
+      .createQueryBuilder("user")
+      .orderBy("user.totalPoints", "DESC")
+      .limit(limit)
+      .getMany();
   }
 }
