@@ -14,7 +14,6 @@ export class TournamentService {
     private tournamentRepository: Repository<Tournament>,
     @InjectRepository(TournamentParticipant)
     private tournamentParticipantRepository: Repository<TournamentParticipant>,
-    @InjectRepository(Match) private matchRepository: Repository<Match>,
     @InjectRepository(User) private userRepository: Repository<User>,
     private dataSource: DataSource
   ) {}
@@ -77,9 +76,17 @@ export class TournamentService {
         throw new Error("Необходимо как минимум 2 участника");
       }
 
-      const finalPlaces = new Map<string, number>();
       let round = 1;
       let currentTournament = participants.slice();
+
+      // Коллекция выбывших участников
+      const eliminatedRoundMap = new Map<string, number>();
+
+      // Места определяем по мере выбывания игроков, финальные места распределяются по раунду на выбывание.
+      // Места рассчитываются следующим образом:
+      // - Победитель получает 1-е место после окончания турнира.
+      // - Финальный соперник получает 2-е место.
+      // - Проигравшие в полуфинале занимают 3-4-е места и т. д.
 
       while (currentTournament.length > 1) {
         this.shuffle(currentTournament);
@@ -114,100 +121,101 @@ export class TournamentService {
 
         await manager.save(matchesToSave);
 
-        // Определяем места по мере выбывания игроков, финальные места распределяются по раунду на выбывание.
-        // Места будем рассчитывать следующим образом:
-        // - Победитель получает 1-е место после окончания турнира.
-        // - Финальный соперник получает 2-е место.
-        // - Проигравшие в полуфинале занимают 3-4-е места и т. д.
-
         // Выбывшие участники в этом раунде:
-        const dropout: TournamentParticipant[] = [];
         for (const match of matchesToSave) {
           const loser =
             match.winner?.id === match.participantA.id
               ? match.participantB
               : match.participantA;
-          dropout.push(loser);
+          eliminatedRoundMap.set(loser.id, round);
         }
 
-        // назначить предварительный раунд на выбывание выбывшим игрокам (мы переведем его в финальное место)
-        // сохранить раунд, в котором выбывшие игроки участвуют, в виде метаданных в их записях об участниках (непостоянное поле).
-        // Мы будем собирать информацию об выбывших игроках в виде списка.
-        dropout.forEach((p) => {
-          (p as any)._eliminatedAtRound = round;
-        });
-
-        // participants for next round:
+        // участники для следующего раунда:
         currentTournament = winners;
         round++;
       }
 
-      // now currentTournament.length === 1 -> winner
+      // если currentTournament.length === 1, определился победитель
       const champion = currentTournament[0];
 
-      // Collect all participants again to compute places:
+      // Все участники, чтобы определить места:
       const allParticipants = await manager.find(TournamentParticipant, {
         where: { tournament: { id: tournament.id } },
         relations: ["user"],
       });
 
-      // We'll compute place by elimination round; players eliminated later have better place.
-      // Build map participantId -> eliminatedRound. Winner has eliminatedRound = Infinity
-      const eliminatedRoundMap = new Map<string, number>();
-      // read matches from DB for this tournament to determine elimination rounds:
+      // Матчи для этого турнира, чтобы определить раунды на выбывание:
       const matches = await manager.find(Match, {
         where: { tournament: { id: tournament.id } },
         relations: ["participantA", "participantB", "winner"],
       });
-      // For each participant, find the max round they played; the round they lost is the one where they appeared and != winner
-      for (const p of allParticipants) {
-        eliminatedRoundMap.set(p.id, 0); // default
+
+      // Для каждого участника находим максимальный раунд, в котором он принял участие; проигранный раунд — это тот, в котором он появился и не победитель.
+      for (const participant of allParticipants) {
+        eliminatedRoundMap.set(participant.id, 0);
       }
-      for (const m of matches) {
-        // participants who are not winner in this match are eliminated at this round (if not already eliminated earlier)
+
+      for (const match of matches) {
+        // Участники, не ставшие победителями в этом матче, выбывают на этом этапе (если не выбыли ранее)
         const loser =
-          m.winner?.id === m.participantA.id ? m.participantB : m.participantA;
-        const prev = eliminatedRoundMap.get(loser.id) ?? 0;
-        eliminatedRoundMap.set(loser.id, Math.max(prev, m.round));
+          match.winner?.id === match.participantA.id
+            ? match.participantB
+            : match.participantA;
+
+        // проверяем есть ли уже запись с этим участником
+        const previousEntry = eliminatedRoundMap.get(loser.id) ?? 0;
+
+        // если есть - перезаписываем
+        eliminatedRoundMap.set(loser.id, Math.max(previousEntry, match.round));
       }
-      // champion never lost -> set to very large
+
+      // для победителя ставим максимальное число
       eliminatedRoundMap.set(champion.id, Number.MAX_SAFE_INTEGER);
 
-      // Now order participants by eliminatedRound descending (larger = lasted longer)
-      const sorted = allParticipants.slice().sort((a, b) => {
-        const ra = eliminatedRoundMap.get(a.id) ?? 0;
-        const rb = eliminatedRoundMap.get(b.id) ?? 0;
-        if (ra === rb) return a.createdAt.getTime() - b.createdAt.getTime(); // deterministic
-        return rb - ra; // descending
+      // сортируем участников по выбыванию
+      const sortedParticipants = allParticipants.slice().sort((a, b) => {
+        const roundParticipantA = eliminatedRoundMap.get(a.id) ?? 0;
+        const roundParticipantB = eliminatedRoundMap.get(b.id) ?? 0;
+
+        // если участники выбыли в одном и том же раунде, сортируем по времени создания
+        if (roundParticipantA === roundParticipantB)
+          return a.createdAt.getTime() - b.createdAt.getTime();
+
+        // если нет - по раунду, когда выбыли
+        return roundParticipantB - roundParticipantA;
       });
 
-      // assign places 1..N
-      for (let i = 0; i < sorted.length; i++) {
-        const p = sorted[i];
-        p.place = i + 1;
-        // award points to user
-        const pts = this.pointsForPlace(i + 1);
-        // increment user's totalPoints
-        const user = await manager.findOne(User, { where: { id: p.user.id } });
+      // назначаем места
+      for (let i = 0; i < sortedParticipants.length; i++) {
+        const participant = sortedParticipants[i];
+        participant.place = i + 1;
 
-        if (!user) throw new Error(`User not found: ${p.user.id}`);
+        // начисляем баллы
+        const points = this.pointsForPlace(i + 1);
 
-        user.totalPoints += pts;
+        const user = await manager.findOne(User, {
+          where: { id: participant.user.id },
+        });
+
+        if (!user)
+          throw new Error(`Пользователь не найден: ${participant.user.id}`);
+
+        user.totalPoints += points;
         await manager.save(user);
-        await manager.save(p);
+        await manager.save(participant);
       }
 
-      // finalize tournament
+      // завершаем турнир
       tournament.status = TournamentStatus.FINISHED;
       await manager.save(tournament);
 
       return {
         tournamentId: tournament.id,
         championId: champion.user.id,
-        places: sorted.map((s) => ({
-          participantId: s.id,
-          userId: s.user.id,
-          place: s.place,
+        places: sortedParticipants.map((participant) => ({
+          participantId: participant.id,
+          userId: participant.user.id,
+          place: participant.place,
         })),
       };
     });
