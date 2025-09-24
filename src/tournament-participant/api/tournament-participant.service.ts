@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { forwardRef, Inject, Injectable } from "@nestjs/common";
 import { Repository } from "typeorm";
 import { InjectRepository } from "@nestjs/typeorm";
 
@@ -13,6 +13,7 @@ export class TournamentParticipantService {
   constructor(
     @InjectRepository(TournamentParticipant)
     private readonly tournamentParticipantRepository: Repository<TournamentParticipant>,
+    @Inject(forwardRef(() => TournamentService))
     private readonly tournamentService: TournamentService,
     private readonly userService: UserService
   ) {}
@@ -21,7 +22,7 @@ export class TournamentParticipantService {
     createTournamentParticipantDto: CreateTournamentParticipantDto
   ): Promise<TournamentParticipant> => {
     const tournament = await this.tournamentService.getById(
-      createTournamentParticipantDto.userId
+      createTournamentParticipantDto.tournamentId
     );
     if (!tournament) throw new Error("Турнир не найден");
     if (tournament.status !== TournamentStatus.DRAFT) {
@@ -33,9 +34,11 @@ export class TournamentParticipantService {
     );
     if (!user) throw new Error("Пользователь не найден");
 
-    return this.tournamentParticipantRepository.create({
+    const tournamentParticipant = this.tournamentParticipantRepository.create({
       tournament,
       user,
     });
+
+    return this.tournamentParticipantRepository.save(tournamentParticipant);
   };
 }

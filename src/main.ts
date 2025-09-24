@@ -10,7 +10,6 @@ async function bootstrap() {
     .setTitle("Tournaments")
     .setDescription("Tournaments API description")
     .setVersion("1.0")
-    .addTag("makrenka")
     .build();
 
   const document = SwaggerModule.createDocument(app, config);

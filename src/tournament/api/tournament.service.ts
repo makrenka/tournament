@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { forwardRef, Inject, Injectable } from "@nestjs/common";
 import { Repository, DataSource } from "typeorm";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Tournament } from "../entities/tournament.entity";
@@ -9,6 +9,7 @@ import { TournamentStatus } from "utils/enums/tournament.enum";
 import { JoinTournamentDto } from "../dto/join-tournament.dto";
 import { RunTournamentDto } from "../dto/run-tournament.dto";
 import { TournamentParticipantService } from "src/tournament-participant/api/tournament-participant.service";
+import { CreateTournamentDto } from "../dto/create-tournament.dto";
 
 @Injectable()
 export class TournamentService {
@@ -16,11 +17,12 @@ export class TournamentService {
     @InjectRepository(Tournament)
     private readonly tournamentRepository: Repository<Tournament>,
     private readonly dataSource: DataSource,
+    @Inject(forwardRef(() => TournamentParticipantService))
     private readonly tournamentParticipantService: TournamentParticipantService
   ) {}
 
-  createTournament = async (name: string) => {
-    const tournament = this.tournamentRepository.create({ name });
+  createTournament = async (createTournamentDto: CreateTournamentDto) => {
+    const tournament = this.tournamentRepository.create(createTournamentDto);
     return this.tournamentRepository.save(tournament);
   };
 
@@ -28,7 +30,7 @@ export class TournamentService {
     this.tournamentRepository.findOneBy({ id });
 
   joinTournament = async (joinTournamentDto: JoinTournamentDto) =>
-    this.tournamentParticipantService.create(joinTournamentDto);
+    await this.tournamentParticipantService.create(joinTournamentDto);
 
   runTournament = async (runTournamentDto: RunTournamentDto) =>
     this.dataSource.transaction(async (manager) => {

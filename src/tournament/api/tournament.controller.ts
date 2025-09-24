@@ -4,7 +4,6 @@ import { CreateTournamentDto } from "../dto/create-tournament.dto";
 import { JoinTournamentDto } from "../dto/join-tournament.dto";
 import { RunTournamentDto } from "../dto/run-tournament.dto";
 import { ApiOperation } from "@nestjs/swagger";
-import { ApiResponseSuccess } from "utils/decorators/api-response-success.decorator";
 
 @Controller("tournaments")
 export class TournamentController {
@@ -13,7 +12,7 @@ export class TournamentController {
   @Post()
   @ApiOperation({ summary: "Create tournament" })
   async create(@Body() createTournamentDto: CreateTournamentDto) {
-    return this.tournamentService.createTournament(createTournamentDto.name);
+    return this.tournamentService.createTournament(createTournamentDto);
   }
 
   @Post("join")
