@@ -1,10 +1,13 @@
 import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
+import { TransformResponseInterceptor } from "utils/interceptors/transform-response.interceptor";
 
 async function bootstrap() {
   const PORT = process.env.PORT || 5000;
   const app = await NestFactory.create(AppModule);
+
+  app.useGlobalInterceptors(new TransformResponseInterceptor());
 
   const config = new DocumentBuilder()
     .setTitle("Tournaments")
