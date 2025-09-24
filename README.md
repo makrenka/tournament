@@ -6,7 +6,8 @@
  ```yarn install``` - install dependencies;
 
 # Run:
-create ```.env``` file using ```.env_example```
+- create ```.env``` file using ```.env_example```
+- ```yarn start:dev``` - run dev server on http://localhost:5000/
 
 # Overview:
     http://localhost:5000/api/docs
