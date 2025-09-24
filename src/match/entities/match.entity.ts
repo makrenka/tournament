@@ -26,7 +26,7 @@ export class Match {
   winner?: TournamentParticipant;
 
   @Column({ type: "int" })
-  round: number; // 1,2,...
+  round: number;
 
   @CreateDateColumn()
   createdAt: Date;

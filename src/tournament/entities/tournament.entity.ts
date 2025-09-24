@@ -23,8 +23,4 @@ export class Tournament {
 
   @CreateDateColumn()
   createdAt: Date;
-
-  // optional metadata
-  @Column({ type: "json", nullable: true })
-  meta?: any;
 }

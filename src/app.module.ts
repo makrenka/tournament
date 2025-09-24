@@ -1,10 +1,10 @@
 import { Module } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
-import { UserModule } from "./user/user.module";
 import { ConfigModule } from "@nestjs/config";
-import { TournamentModule } from './tournament/tournament.module';
-import { TournamentParticipantModule } from './tournament-participant/tournament-participant.module';
-import { MatchModule } from './match/match.module';
+import { UserModule } from "./user/user.module";
+import { TournamentModule } from "./tournament/tournament.module";
+import { TournamentParticipantModule } from "./tournament-participant/tournament-participant.module";
+import { MatchModule } from "./match/match.module";
 
 @Module({
   imports: [

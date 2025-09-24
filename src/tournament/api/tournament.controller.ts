@@ -1,28 +1,30 @@
-import { Controller, Post, Body, Param, Get } from "@nestjs/common";
+import { Controller, Post, Body, Get } from "@nestjs/common";
 import { TournamentService } from "./tournament.service";
+import { CreateTournamentDto } from "../dto/create-tournament.dto";
+import { JoinTournamentDto } from "../dto/join-tournament.dto";
+import { RunTournamentDto } from "../dto/run-tournament.dto";
+import { ApiOperation } from "@nestjs/swagger";
+import { ApiResponseSuccess } from "utils/decorators/api-response-success.decorator";
 
 @Controller("tournaments")
 export class TournamentController {
-  constructor(private tournamentService: TournamentService) {}
+  constructor(private readonly tournamentService: TournamentService) {}
 
   @Post()
-  async create(@Body("name") name: string) {
-    return this.tournamentService.createTournament(name);
+  @ApiOperation({ summary: "Create tournament" })
+  async create(@Body() createTournamentDto: CreateTournamentDto) {
+    return this.tournamentService.createTournament(createTournamentDto.name);
   }
 
-  @Post(":id/join")
-  async join(@Param("id") id: string, @Body("userId") userId: string) {
-    return this.tournamentService.joinTournament(id, userId);
+  @Post("join")
+  @ApiOperation({ summary: "Join participants to the tournament" })
+  async join(@Body() joinTournamentDto: JoinTournamentDto) {
+    return this.tournamentService.joinTournament(joinTournamentDto);
   }
 
-  @Post(":id/run")
-  async run(@Param("id") id: string) {
-    return this.tournamentService.runTournament(id);
-  }
-
-  // simple leaderboard endpoint: top users by totalPoints
-  @Get("leaderboard")
-  async leaderboard() {
-    return this.tournamentService.getGlobalLeaderboard(); // реализуйте в сервисе на основе User.totalPoints
+  @Post("run")
+  @ApiOperation({ summary: "Run tournament" })
+  async run(@Body() runTournamentDto: RunTournamentDto) {
+    return this.tournamentService.runTournament(runTournamentDto);
   }
 }

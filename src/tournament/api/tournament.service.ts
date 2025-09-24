@@ -6,59 +6,34 @@ import { TournamentParticipant } from "src/tournament-participant/entities/tourn
 import { Match } from "src/match/entities/match.entity";
 import { User } from "src/user/entities/user.entity";
 import { TournamentStatus } from "utils/enums/tournament.enum";
+import { JoinTournamentDto } from "../dto/join-tournament.dto";
+import { RunTournamentDto } from "../dto/run-tournament.dto";
+import { TournamentParticipantService } from "src/tournament-participant/api/tournament-participant.service";
 
 @Injectable()
 export class TournamentService {
   constructor(
     @InjectRepository(Tournament)
-    private tournamentRepository: Repository<Tournament>,
-    @InjectRepository(TournamentParticipant)
-    private tournamentParticipantRepository: Repository<TournamentParticipant>,
-    @InjectRepository(User) private userRepository: Repository<User>,
-    private dataSource: DataSource
+    private readonly tournamentRepository: Repository<Tournament>,
+    private readonly dataSource: DataSource,
+    private readonly tournamentParticipantService: TournamentParticipantService
   ) {}
 
-  async createTournament(name: string) {
+  createTournament = async (name: string) => {
     const tournament = this.tournamentRepository.create({ name });
     return this.tournamentRepository.save(tournament);
-  }
+  };
 
-  async joinTournament(tournamentId: string, userId: string) {
-    const tournament = await this.tournamentRepository.findOneByOrFail({
-      id: tournamentId,
-    });
-    if (tournament.status !== TournamentStatus.DRAFT) {
-      throw new Error("Можно присоединиться только к турнирам DRAFT");
-    }
-    const user = await this.userRepository.findOneByOrFail({ id: userId });
-    const participant = this.tournamentParticipantRepository.create({
-      tournament: tournament,
-      user,
-    });
-    return this.tournamentParticipantRepository.save(participant);
-  }
+  getById = async (id: string): Promise<Tournament | null> =>
+    this.tournamentRepository.findOneBy({ id });
 
-  private shuffle<T>(arr: T[]) {
-    for (let i = arr.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [arr[i], arr[j]] = [arr[j], arr[i]];
-    }
-    return arr;
-  }
+  joinTournament = async (joinTournamentDto: JoinTournamentDto) =>
+    this.tournamentParticipantService.create(joinTournamentDto);
 
-  // система баллов — первое место: 100, второе место: 60, третье место: 40, остальные меньше
-  private pointsForPlace(place: number) {
-    if (place === 1) return 100;
-    if (place === 2) return 60;
-    if (place <= 4) return 40;
-    if (place <= 8) return 20;
-    return 5;
-  }
-
-  async runTournament(tournamentId: string) {
-    return this.dataSource.transaction(async (manager) => {
+  runTournament = async (runTournamentDto: RunTournamentDto) =>
+    this.dataSource.transaction(async (manager) => {
       const tournament = await manager.findOne(Tournament, {
-        where: { id: tournamentId },
+        where: { id: runTournamentDto.tournamentId },
       });
       if (!tournament) throw new Error("Турнир не найден");
       if (tournament.status !== TournamentStatus.DRAFT)
@@ -150,13 +125,14 @@ export class TournamentService {
         relations: ["participantA", "participantB", "winner"],
       });
 
-      // Для каждого участника находим максимальный раунд, в котором он принял участие; проигранный раунд — это тот, в котором он появился и не победитель.
+      // Для каждого участника находим максимальный раунд, в котором он принял участие;
+      // проигранный раунд — это тот, в котором он появился и не победитель.
       for (const participant of allParticipants) {
         eliminatedRoundMap.set(participant.id, 0);
       }
 
       for (const match of matches) {
-        // Участники, не ставшие победителями в этом матче, выбывают на этом этапе (если не выбыли ранее)
+        // Участники, не ставшие победителями в этом матче, выбывают на этом этапе
         const loser =
           match.winner?.id === match.participantA.id
             ? match.participantB
@@ -219,13 +195,21 @@ export class TournamentService {
         })),
       };
     });
+
+  private shuffle<T>(arr: T[]) {
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
   }
 
-  async getGlobalLeaderboard(limit = 50) {
-    return this.userRepository
-      .createQueryBuilder("user")
-      .orderBy("user.totalPoints", "DESC")
-      .limit(limit)
-      .getMany();
+  // система баллов — первое место: 100, второе место: 60, третье место: 40, остальные меньше
+  private pointsForPlace(place: number) {
+    if (place === 1) return 100;
+    if (place === 2) return 60;
+    if (place <= 4) return 40;
+    if (place <= 8) return 20;
+    return 5;
   }
 }

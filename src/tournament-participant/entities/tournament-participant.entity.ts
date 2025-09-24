@@ -21,11 +21,6 @@ export class TournamentParticipant {
   @ManyToOne(() => User, { eager: true, onDelete: "CASCADE" })
   user: User;
 
-  // initial seeding ranking (optional)
-  @Column({ type: "int", nullable: true })
-  seed?: number;
-
-  // final place (1 = first, 2 = second, etc.)
   @Column({ type: "int", nullable: true })
   place?: number;
 

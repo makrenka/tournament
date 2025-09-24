@@ -11,10 +11,7 @@ export class User {
   id: string;
 
   @Column({ unique: true })
-  username: string;
-
-  @Column({ nullable: true })
-  displayName?: string;
+  userName: string;
 
   @CreateDateColumn()
   createdAt: Date;
